@@ -5658,6 +5658,9 @@ const SEASON_GRADES = [ // 시즌 종료 시점의 재산 칭호 단계(wealthTi
   { min: 4,  g: 'C', pts: 2 },
   { min: 0,  g: 'D', pts: 1 }
 ];
+// 시즌별 한정 보상 배율 (키: 종료되는 시즌의 월 'YYYY-MM'). 값만 바꾸면 조정, 항목을 지우면 해제.
+const SEASON_BONUS_EVENTS = { '2026-09': { mult: 2, label: '🎉 시즌 종료 감사 보너스' } };
+function getSeasonBonusMult(key) { const e = SEASON_BONUS_EVENTS[key]; return e ? e.mult : 1; }
 const MEDAL_ICONS = ['🥇', '🥈', '🥉'];
 const MEDAL_POINTS = [12, 7, 4]; // 금/은/동 메달당 특성 포인트
 
@@ -5814,12 +5817,16 @@ function settleSeason(prevKey, snap) {
   const challengeOk = activeChallenge === 'no_casino';
   const rebirthPts = challengeOk ? baseGain * 2 : baseGain;
   const honorPts = getHonorSeasonBonusPoints();
-  const total = rebirthPts + grade.pts + honorPts;
+  const baseTotal = rebirthPts + grade.pts + honorPts;
+  const bonusMult = getSeasonBonusMult(prevKey);
+  const bonusPts = bonusMult > 1 ? Math.round(baseTotal * (bonusMult - 1)) : 0;
+  const total = baseTotal + bonusPts;
 
   const rows = [];
   if (baseGain > 0) rows.push({ label: challengeOk ? '총 수입 환생 포인트 (🎯챌린지 2배)' : '총 수입 환생 포인트', val: '+' + rebirthPts + 'P' });
   rows.push({ label: `시즌 참가 보상 (등급 ${grade.g})`, val: '+' + grade.pts + 'P' });
   if (honorPts > 0) rows.push({ label: '🏛️ 역대 랭커 특전', val: '+' + honorPts + 'P' });
+  if (bonusPts > 0) rows.push({ label: `${SEASON_BONUS_EVENTS[prevKey].label} (×${bonusMult})`, val: '+' + bonusPts + 'P' });
 
   prestigePoints += total;
   rebirthCount++;
@@ -5917,8 +5924,9 @@ async function processPendingMedals() {
       if (idx >= 0 && idx < 3) got.push({ cat: b.cat, icon: b.icon, title: b.title, rank: idx });
     });
     let pts = 0;
+    const medalMult = getSeasonBonusMult(key);
     got.forEach(g => {
-      pts += MEDAL_POINTS[g.rank];
+      pts += Math.round(MEDAL_POINTS[g.rank] * medalMult);
       if (g.rank === 0) seasonMedals.gold++; else if (g.rank === 1) seasonMedals.silver++; else seasonMedals.bronze++;
     });
     if (pts > 0) { prestigePoints += pts; updateTalentPointBadge(); }
@@ -6111,7 +6119,9 @@ function previewSeasonSettle() {
   const titleIdx = getWealthTitleIndex(), title = wealthTitles[titleIdx];
   const grade = SEASON_GRADES.find(g => titleIdx >= g.min) || SEASON_GRADES[SEASON_GRADES.length - 1];
   const baseGain = calcPrestigeGain(), rebirthPts = activeChallenge === 'no_casino' ? baseGain * 2 : baseGain;
-  return { grade: grade.g, title, total: rebirthPts + grade.pts + getHonorSeasonBonusPoints() };
+  const base = rebirthPts + grade.pts + getHonorSeasonBonusPoints();
+  const bm = getSeasonBonusMult(getMonthKey(new Date()));
+  return { grade: grade.g, title, total: bm > 1 ? base + Math.round(base * (bm - 1)) : base, bonusMult: bm };
 }
 const SEASON_WARN_STEPS = [ // 큰 값 -> 작은 값 순서
   { ms: 3600000, id: '1h',  text: '⏰ 시즌 정산까지 1시간! 정산되면 돈·사업·검이 초기화돼요.' },
@@ -6123,7 +6133,7 @@ function openSeasonWarn() {
   document.getElementById('seasonWarnBody').innerHTML = `
     <div>🔄 <b>초기화</b> : 돈 · 사업 · 검</div>
     <div>✅ <b>그대로</b> : 컬렉션 · 특성 · 업적 · 메달</div>
-    <div>🎁 <b>지금 정산되면</b> : ${pv ? `시즌 등급 <b>${pv.grade}</b> (${pv.title.icon} ${hofEsc(pv.title.name)}) · 보상 <b>+${pv.total}P</b>` : '총 수입 1억 미만이라 이번 정산은 면제돼요'}</div>
+    <div>🎁 <b>지금 정산되면</b> : ${pv ? `시즌 등급 <b>${pv.grade}</b> (${pv.title.icon} ${hofEsc(pv.title.name)}) · 보상 <b>+${pv.total}P</b>${pv.bonusMult > 1 ? ` (🎉 감사 보너스 ×${pv.bonusMult} 포함)` : ''}` : '총 수입 1억 미만이라 이번 정산은 면제돼요'}</div>
     <div style="color:var(--paper-dim); margin-top:4px;">📴 게임을 꺼 둬도 다음에 접속하는 순간(며칠 늦어도) 똑같이 정산돼요. 정산이 끝나면 보고서 창이 떠요.</div>`;
   const end = new Date(getSeasonEndMs());
   document.getElementById('seasonWarnDate').textContent = `${end.getMonth() + 1}월 ${end.getDate()}일 0시에 정산`;
