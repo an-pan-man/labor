@@ -7627,6 +7627,10 @@ function checkPeriodRollover() {
       swordStoreLevel = 0;
       swordMonthlyBestLevel = 0;
       swordBattleWins = 0; // 검배틀 랭킹(승점)도 새 시즌부터 다시 0에서 시작
+      // 미니게임 주간 랭킹도 시즌 시작(매달 1일)에 맞춰 강제로 새로 시작한다.
+      // (기존엔 ISO 주간 주기만 따라가서, 시즌이 주 중간에 시작되면 지난주 딴 돈이
+      // 그대로 "이번 주" 랭킹에 섞여 보이는 문제가 있었음)
+      weeklyWinnings = 0;
       renderSwordPanel();
       // 지난달 랭킹 메달·검 랭킹 보상은 로그인/네트워크가 준비되면(바로 못 하면 나중에 다시) 확인한다.
       medalPendingKey = prevMk;
