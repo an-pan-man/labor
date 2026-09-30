@@ -213,16 +213,16 @@ begin
     'last_drawn', v_last, 'mine', v_mine, 'rounds', v_rounds, 'uid', v_uid,
     'cfg', jsonb_build_object('price', '1000000000000', 'base1', '500000000000000000',
                               'p2', '50000000000000000', 'p3', '1000000000000000', 'p4', '100000000000000',
-                              'max', 10)
+                              'max', 100)
   );
 end $$;
 
--- ---------- 구매 (회차당 1인 10장 한도를 서버에서 강제) ----------
+-- ---------- 구매 (회차당 1인 100장 한도를 서버에서 강제) ----------
 -- p_tickets: [{"nums":[1,2,3,4,5,6],"kind":"수동"|"자동"|"반자동"}, ...]
 create or replace function public.lotto_buy(p_tickets jsonb, p_name text) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
-  c_max constant int := 10;
+  c_max constant int := 100;
   v_uid uuid := auth.uid(); v_round date := lotto_cur_round();
   v_have int; v_n int; t jsonb; v_nums int[]; v_kind text; v_name text; v_id bigint; v_new jsonb := '[]'::jsonb;
 begin
