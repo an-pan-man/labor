@@ -7626,6 +7626,7 @@ function checkPeriodRollover() {
       swordStoreOwned = false;
       swordStoreLevel = 0;
       swordMonthlyBestLevel = 0;
+      swordBattleWins = 0; // 검배틀 랭킹(승점)도 새 시즌부터 다시 0에서 시작
       renderSwordPanel();
       // 지난달 랭킹 메달·검 랭킹 보상은 로그인/네트워크가 준비되면(바로 못 하면 나중에 다시) 확인한다.
       medalPendingKey = prevMk;
@@ -8589,8 +8590,13 @@ async function syncLeaderboard() {
     await dbSetDoc('leaderboard', currentUser.uid, { name, updatedAt, tierName: overallTier.name, tierIcon: overallTier.icon, amount: toBigStorable(casinoTotalWinnings), nameColor: nameColorHex, mansionIcon });
     await dbSetDoc(`leaderboard_weekly_${weeklyPeriodKey}`, currentUser.uid, { name, updatedAt, tierName: weeklyTier.name, tierIcon: weeklyTier.icon, amount: toBigStorable(weeklyWinnings), nameColor: nameColorHex, mansionIcon });
     await dbSetDoc(`leaderboard_monthly_${monthlyPeriodKey}`, currentUser.uid, { name, updatedAt, tierName: monthlyTier.name, tierIcon: monthlyTier.icon, amount: toBigStorable(monthlyWinnings), nameColor: nameColorHex, mansionIcon });
-    // 검배틀 랭킹(승점, 전체기간) + 매치메이킹용 내 현재 검 레벨(검이 없으면 -1)도 함께 올려둔다.
+    // 검배틀 랭킹(승점) 매치메이킹용 문서: 상대 검색은 검 레벨(swordLevel) 기준이라
+    // 이 컬렉션은 시즌과 무관하게 계속 재사용한다(matchmaking pool).
     await dbSetDoc('leaderboard_sword', currentUser.uid, { name, updatedAt, amount: swordBattleWins, nameColor: nameColorHex, mansionIcon, swordLevel: swordOwned ? swordLevel : -1 });
+    // [변경] 검배틀 랭킹(승점) 순위 표시는 매달 초기화되도록 월별 컬렉션에 별도로 기록한다.
+    // (예전엔 leaderboard_sword 하나를 전체기간 누적으로 계속 써서, 새 시즌이 와도
+    // 지난 시즌 승점이 그대로 순위에 남아있는 문제가 있었음)
+    await dbSetDoc(`leaderboard_sword_battle_${monthlyPeriodKey}`, currentUser.uid, { name, updatedAt, amount: swordBattleWins, nameColor: nameColorHex, mansionIcon });
     // 검 랭킹(월간, 이번 달 최고 강화 레벨 기준)
     await dbSetDoc(`leaderboard_sword_monthly_${monthlyPeriodKey}`, currentUser.uid, { name, updatedAt, amount: swordMonthlyBestLevel, nameColor: nameColorHex, mansionIcon });
     // 명예의 전당(역대 전설) 기록은 값이 바뀐 때만 따로 기록한다
@@ -8604,7 +8610,7 @@ function getLeaderboardCollectionName(period) {
   if (period === 'weekly') return `leaderboard_weekly_${weeklyPeriodKey}`;
   if (period === 'monthly') return `leaderboard_monthly_${monthlyPeriodKey}`;
   if (period === 'burn') return `leaderboard_burn_monthly_${monthlyPeriodKey}`;
-  if (period === 'sword') return 'leaderboard_sword';
+  if (period === 'sword') return `leaderboard_sword_battle_${monthlyPeriodKey}`;
   if (period === 'swordcurrent') return 'leaderboard_sword'; // 검배틀 매치메이킹용으로 실시간으로 갱신되는 같은 컬렉션을 재사용
   if (period === 'swordmonthly') return `leaderboard_sword_monthly_${monthlyPeriodKey}`;
   return 'leaderboard';
@@ -8628,6 +8634,7 @@ function rankLimitForBoard(board) {
   if (typeof board !== 'string') return null;
   if (board.startsWith('leaderboard_sword_monthly_')) return LEGENDARY_SWORD_LEVEL;
   if (board === 'leaderboard_sword') return 2e7;
+  if (board.startsWith('leaderboard_sword_battle_')) return 2e7; // 검배틀 랭킹도 시즌(월)별로 나뉘었지만 승점 한도는 동일
   if (board.startsWith('leaderboard_weekly_')) return 1e31;
   if (board.startsWith('leaderboard_monthly_')) return 1e32;
   if (board.startsWith('leaderboard_burn_monthly_')) return 1e32;
