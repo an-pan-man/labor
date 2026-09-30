@@ -1670,7 +1670,7 @@
       <p style="font-size:12px; color:var(--paper-dim); margin-top:-4px;">내 검의 강화 레벨로 무작위 상대와 대결해요. 레벨 차이가 클수록 승률도 크게 갈리고, 레벨이 같으면 50:50이에요. 이기면 승점 +5, 지면 승점 -5(0점 밑으로는 안 내려가요). 배틀은 최대 10회까지 모아둘 수 있고, 6분마다 1회씩 자동으로 충전돼요.</p>
       <div style="margin:14px 0; text-align:center; background:var(--bg-panel); border-radius:10px; padding:16px 14px;">
         <div style="font-size:12px; color:var(--paper-dim);">내 검: <b id="swordBattleMyName" style="color:var(--gold);">검이 없어요</b></div>
-        <div style="font-size:12px; color:var(--paper-dim); margin-top:4px;">누적 승점 <b id="swordBattleWinsText" style="color:var(--gold);">0</b>점</div>
+        <div style="font-size:12px; color:var(--paper-dim); margin-top:4px;">이번 시즌 승점 <b id="swordBattleWinsText" style="color:var(--gold);">0</b>점</div>
         <div style="font-size:12px; color:var(--paper-dim); margin-top:4px;">배틀 횟수 <b id="swordBattleTicketText" style="color:var(--gold);">(10/10)</b></div>
         <div id="swordBattleTicketTimer" style="font-size:11px; color:var(--paper-dim); margin-top:2px; min-height:14px;"></div>
         <div id="swordBattleResult" style="margin-top:12px; font-size:13px; min-height:20px;"></div>
@@ -2795,7 +2795,8 @@ const SWORD_STAGES = [
 // 확률표 기준: 레벨 차이 1당 "상대가 이길 확률"이 5%p씩 줄어들고, 레벨이 같으면 50:50.
 // (레벨 차이 10 이상이면 상대가 이길 확률 0%로 고정 = 내가 사실상 무조건 승리)
 // 내가 이길 확률은 100 - (상대가 이길 확률) 로 계산한다.
-let swordBattleWins = 0;       // 누적 승점 (검배틀 랭킹 기준)
+let swordBattleWins = 0;       // 이번 시즌(월) 승점 (검배틀 랭킹 기준, 매월 0으로 초기화)
+let swordBattleSeasonKey = ''; // 승점이 집계된 시즌(월) 키 - 이 키가 이번 달과 다르면 승점을 0으로 리셋
 let swordBattleCountToday = 0; // (예전 하루 제한용, 더 이상 제한에는 쓰지 않지만 세이브 호환을 위해 유지)
 // ===== 검 배틀 횟수 제한: 최대 10회 보유, 6분마다 1회 자동 충전 =====
 // 충전은 타이머를 돌리지 않고 "시간이 얼마나 지났는지"로 그때그때 계산한다.
@@ -2915,6 +2916,7 @@ async function startSwordBattle() {
   initAudio();
   if (swordBattleBusy) return;
   const resultEl = document.getElementById('swordBattleResult');
+  ensureSwordBattleSeason();
   if (!swordOwned) { showToast('⚔️ 먼저 검을 만들어주세요!'); return; }
   // 횟수 차감은 상대를 찾기 전에 먼저 한다 (검이 없을 땐 위에서 걸러져서 횟수를 쓰지 않는다).
   if (!consumeSwordBattleTicket()) {
@@ -6531,8 +6533,8 @@ function renderMyRankCard() {
     card.innerHTML = `
       <span class="my-rank-icon">⚔️</span>
       <div style="flex:1;">
-        <div class="my-rank-name">검배틀 승점 <span style="font-size:10px; color:var(--paper-dim); font-weight:normal;">(누적 기준)</span></div>
-        <div class="my-rank-sub">누적 승점 ${swordBattleWins.toLocaleString('ko-KR')}점</div>
+        <div class="my-rank-name">검배틀 승점 <span style="font-size:10px; color:var(--paper-dim); font-weight:normal;">(이번 시즌)</span></div>
+        <div class="my-rank-sub">이번 시즌 승점 ${swordBattleWins.toLocaleString('ko-KR')}점</div>
         <div class="my-rank-sub" id="myRankPosition" style="color:var(--gold);">내 순위 불러오는 중...</div>
       </div>
     `;
@@ -7601,7 +7603,17 @@ function getMonthKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 // 주/월이 바뀌면 로컬 카운트를 새 기간 기준으로 리셋 (기존 기간 랭킹 데이터는 별도 컬렉션에 그대로 남음)
+// 검배틀 승점은 시즌(월) 키와 함께 저장한다. 키가 이번 달과 다르면(월이 바뀌었거나, 키가 없는 예전 저장본)
+// 시즌 정산 코드가 성공했는지와 상관없이 무조건 0에서 다시 시작한다.
+function ensureSwordBattleSeason() {
+  const mk = getMonthKey(new Date());
+  if (swordBattleSeasonKey === mk) return false;
+  swordBattleSeasonKey = mk;
+  swordBattleWins = 0;
+  return true;
+}
 function checkPeriodRollover() {
+  ensureSwordBattleSeason();
   const wk = getWeekKey(new Date());
   if (weeklyPeriodKey !== wk) {
     const prevKey = weeklyPeriodKey;
@@ -7620,7 +7632,7 @@ function checkPeriodRollover() {
     burnedMonthly = 0;
     if (prevMk) {
       // 시즌 정산: 돈·사업 강제 환생(총 수입 1억 미만 초보는 면제) + 새 시즌을 위해 검 초기화.
-      settleSeason(prevMk, snap);
+      try { settleSeason(prevMk, snap); } catch (e) { console.error('시즌 정산 중 오류(나머지 초기화는 계속 진행):', e); }
       swordOwned = false;
       swordLevel = 0;
       swordStoreOwned = false;
@@ -8897,7 +8909,7 @@ function buildSaveData() {
     map6Unlocked, voidWave, voidShards, voidDamageLevel, voidEnemyHp, voidEnemyMaxHp, voidRelics,
     burnedTotal, burnedMonthly, mansionLevel, lastSeenPatchVersion,
     swordOwned, swordLevel, swordBestLevel, swordBreakCount,
-    swordBattleWins, swordBattleCountToday, swordBattleTickets, swordBattleTicketsAt, lottoAppliedIds,
+    swordBattleWins, swordBattleSeasonKey, swordBattleCountToday, swordBattleTickets, swordBattleTicketsAt, lottoAppliedIds,
     swordMonthlyBestLevel, swordReviveCharges, swordColorBoostMonthKey, swordColorBoostMult, claimedSwordSeasonRewards,
     swordStoreOwned, swordStoreLevel,
     fateCardId, fateOffer, seasonMedals, seasonHistory, claimedMedalSeasons, medalPendingKey, bestSeasonEarned, bestMonthlyCasino, seasonCount,
@@ -9008,6 +9020,7 @@ function applySaveData(data, opts) {
   swordBestLevel = data.swordBestLevel || 0;
   swordBreakCount = data.swordBreakCount || 0;
   swordBattleWins = data.swordBattleWins || 0;
+  swordBattleSeasonKey = data.swordBattleSeasonKey || '';
   swordBattleCountToday = data.swordBattleCountToday || 0;
   // 예전 세이브에는 배틀 횟수 정보가 없다 -> 가득 찬(10/10) 상태로 시작한다.
   swordBattleTickets = (typeof data.swordBattleTickets === 'number') ? data.swordBattleTickets : SWORD_BATTLE_MAX_TICKETS;
