@@ -7627,6 +7627,10 @@ function checkPeriodRollover() {
       swordStoreLevel = 0;
       swordMonthlyBestLevel = 0;
       swordBattleWins = 0; // 검배틀 랭킹(승점)도 새 시즌부터 다시 0에서 시작
+      nameColor = null;    // 이름 색상도 새 시즌부터 기본(무색)으로
+      mansionLevel = 0;    // 저택 꾸미기도 새 시즌부터 레벨 0부터 다시
+      renderMansionModal();
+      renderNameColorModal();
       // 미니게임 주간 랭킹도 시즌 시작(매달 1일)에 맞춰 강제로 새로 시작한다.
       // (기존엔 ISO 주간 주기만 따라가서, 시즌이 주 중간에 시작되면 지난주 딴 돈이
       // 그대로 "이번 주" 랭킹에 섞여 보이는 문제가 있었음)
@@ -8658,6 +8662,15 @@ function isPlausibleRankEntry(board, raw) {
   return true;
 }
 // 시즌 보상용: DB 정렬 그대로 상위 n명을 믿지 않고, 불가능한 값을 뺀 뒤 실제 금액으로 다시 정렬해서 상위 n명의 uid를 돌려준다.
+// 새 시즌이 시작됐는데도 아직 재접속을 안 해서 로컬 리셋(checkPeriodRollover)이
+// 한 번도 실행되지 않은 유저는, leaderboard_sword 문서에 지난 시즌 검 레벨이 그대로
+// 남아있다. '현재검' 랭킹은 시즌별 컬렉션이 아니라 항상 최신 상태를 보여주는 단일
+// 컬렉션을 쓰기 때문에(매치메이킹 재사용), 조회 시점에 "이번 시즌 들어 갱신된 적
+// 없는 문서"를 걸러내서 마치 검이 초기화된 것처럼 처리한다.
+function getSeasonStartMs() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0).getTime();
+}
 async function topPlausibleIds(board, n) {
   const docs = await dbGetDocsOrdered(board, 'amount', 30);
   return docs.filter(d => isPlausibleRankEntry(board, d))
@@ -8676,7 +8689,10 @@ async function fetchLeaderboard(period) {
     // 전부 실제 숫자로 변환해서 우리가 직접 다시 정렬한다 - 예전 오염된 문서가 섞여
     // 있어도 화면에 보이는 순위는 항상 실제 금액 크기 기준으로 정확하게 나온다.
     let docs = await dbGetDocsOrdered(colName, sortField, LEADERBOARD_FETCH_LIMIT);
-    if (period === 'swordcurrent') docs = docs.filter(d => typeof d.swordLevel === 'number' && d.swordLevel >= 0);
+    if (period === 'swordcurrent') {
+      const seasonStart = getSeasonStartMs();
+      docs = docs.filter(d => typeof d.swordLevel === 'number' && d.swordLevel >= 0 && typeof d.updatedAt === 'number' && d.updatedAt >= seasonStart);
+    }
     const decoded = docs.filter(raw => isPlausibleRankEntry(colName, raw)).map((raw) => ({ uid: raw.id, ...raw, amount: sortField === 'swordLevel' ? (raw.swordLevel || 0) : fromBigStorable(raw.amount) }));
     decoded.sort((a, b) => b.amount - a.amount);
     return decoded.slice(0, LEADERBOARD_TOP_N).map((entry, i) => ({ rank: i + 1, ...entry }));
@@ -8710,8 +8726,11 @@ async function fetchMyRankInfoUncached(period) {
     const sortField = getLeaderboardSortField(period);
     // 순위/인원만 필요하니 user_id, amount, sword_level 컬럼만 받아온다. 서버 상한(Max rows)에
     // 걸려 잘리지 않도록 dbGetDocsOrdered가 페이지를 이어서 전부 받아온다.
-    let docs = await dbGetDocsOrdered(colName, sortField, null, 'user_id,amount,sword_level');
-    if (period === 'swordcurrent') docs = docs.filter(d => typeof d.swordLevel === 'number' && d.swordLevel >= 0);
+    let docs = await dbGetDocsOrdered(colName, sortField, null, period === 'swordcurrent' ? 'user_id,amount,sword_level,updated_at' : 'user_id,amount,sword_level');
+    if (period === 'swordcurrent') {
+      const seasonStart = getSeasonStartMs();
+      docs = docs.filter(d => typeof d.swordLevel === 'number' && d.swordLevel >= 0 && typeof d.updatedAt === 'number' && d.updatedAt >= seasonStart);
+    }
     // fetchLeaderboard와 마찬가지로 타입이 섞인 문서 때문에 정렬 순서를 그대로 믿지 않고,
     // 실제 금액(fromBigStorable)으로 다시 정렬한 뒤 내 순위를 찾는다.
     const decoded = docs.filter(d => isPlausibleRankEntry(colName, d)).map((d) => ({ uid: d.id, amount: sortField === 'swordLevel' ? (d.swordLevel || 0) : fromBigStorable(d.amount) }));
