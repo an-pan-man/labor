@@ -14,7 +14,7 @@
 // 배포(파일 교체 후 git push)할 때마다 아래 CURRENT_VERSION 숫자만 바꿔주면 됩니다(현재 시간 등 아무 값이나 이전과 다르면 됨).
 // 접속 시 캐시를 무시하고 서버의 실제 최신 파일을 확인해서, 버전이 다르면 자동으로 한 번 새로고침합니다.
 (function() {
-  var CURRENT_VERSION = '2026092013';
+  var CURRENT_VERSION = '2026100101';
   try {
     if (sessionStorage.getItem('lrVersionChecked') === CURRENT_VERSION) return;
     fetch(location.pathname + '?_cb=' + Date.now(), { cache: 'no-store' })
@@ -2108,6 +2108,8 @@ let medalPendingKey = '';       // 메달 확인이 아직 안 끝난 지난 시
 let bestSeasonEarned = 0;       // 역대 최고 시즌 총 수입
 let bestMonthlyCasino = 0;      // 역대 최고 월간 카지노 수익
 let seasonCount = 0;            // 정산까지 마친 시즌 수
+let seasonResetKey = '';        // 시즌 초기화(검·이름색·저택 등)까지 확실히 끝난 시즌(월) 키 - 월 키가 어긋난 저장본도 잡아내는 안전장치용
+const SEASON_FORCE_RESET_KEYS = ['2026-10']; // 이 시즌엔 월 키가 어긋나 초기화를 놓친 저장본도 접속 시 한 번 강제로 초기화한다
 let pendingSeasonReport = null; // 아직 화면에 안 띄운 시즌 정산 보고서 (저장 안 함)
 let seasonNeedsSave = false;    // 정산 직후 클라우드에 바로 저장해야 함 (저장 안 함)
 let seasonUiReady = false;      // 게임 화면이 준비돼서 모달을 띄워도 되는지 (저장 안 함)
@@ -4002,6 +4004,16 @@ let isBrandNewPlayer = false;
 // 간주해 배지를 띄우고, 기존 유저가 접속하면 자동으로 한 번 띄워준다.
 const patchNotes = [
   {
+    version: '2026100101',
+    date: '2026-10-01',
+    items: [
+      '🔧 10월 시즌이 시작됐는데도 일부 기록이 초기화되지 않던 오류를 고쳤어요. 이제 접속하면 새 시즌 기준으로 확실하게 정리돼요',
+      '🗓️ 새 시즌에 초기화되는 것: 검 배틀 승점, 검 강화(메인 검·보관함 검·이번 달 최고 강화), 보유 검, 재산(돈·사업), 이름 색상, 자택(저택) 꾸미기, 월간·주간 랭킹 집계',
+      '🎁 지난 시즌 정산을 아직 못 받은 분은 이번에 시즌 등급에 따른 특성 포인트도 함께 받아요. 이미 정산받은 분은 포인트가 중복으로 지급되지 않아요',
+      '✅ 컬렉션·특성·업적·메달·행운의 코인은 그대로예요. (총 수입 1억 미만 초보는 재산이 그대로 유지돼요)'
+    ]
+  },
+  {
     version: '2026092013',
     date: '2026-09-20',
     items: [
@@ -5807,6 +5819,7 @@ document.getElementById('fateRerollBtn').addEventListener('click', () => {
 // checkPeriodRollover()가 월이 바뀐 걸 감지하면 호출한다. 여기서는 상태만 바꾸고(불러오기 도중에도
 // 안전하게), 보고서 모달은 seasonTick()이 게임 화면이 준비된 뒤에 띄운다.
 function settleSeason(prevKey, snap) {
+  if (seasonHistory.some(h => h.key === prevKey)) return; // 이미 정산한 시즌이면 포인트 중복 지급/재초기화 방지
   const earned = totalEarned;
   bestSeasonEarned = Math.max(bestSeasonEarned, earned);
   bestMonthlyCasino = Math.max(bestMonthlyCasino, snap.casino);
@@ -7633,25 +7646,60 @@ function checkPeriodRollover() {
     if (prevMk) {
       // 시즌 정산: 돈·사업 강제 환생(총 수입 1억 미만 초보는 면제) + 새 시즌을 위해 검 초기화.
       try { settleSeason(prevMk, snap); } catch (e) { console.error('시즌 정산 중 오류(나머지 초기화는 계속 진행):', e); }
-      swordOwned = false;
-      swordLevel = 0;
-      swordStoreOwned = false;
-      swordStoreLevel = 0;
-      swordMonthlyBestLevel = 0;
-      swordBattleWins = 0; // 검배틀 랭킹(승점)도 새 시즌부터 다시 0에서 시작
-      nameColor = null;    // 이름 색상도 새 시즌부터 기본(무색)으로
-      mansionLevel = 0;    // 저택 꾸미기도 새 시즌부터 레벨 0부터 다시
-      renderMansionModal();
-      renderNameColorModal();
-      // 미니게임 주간 랭킹도 시즌 시작(매달 1일)에 맞춰 강제로 새로 시작한다.
-      // (기존엔 ISO 주간 주기만 따라가서, 시즌이 주 중간에 시작되면 지난주 딴 돈이
-      // 그대로 "이번 주" 랭킹에 섞여 보이는 문제가 있었음)
-      weeklyWinnings = 0;
-      renderSwordPanel();
+      resetSeasonScopedData();
+      seasonResetKey = mk;
       // 지난달 랭킹 메달·검 랭킹 보상은 로그인/네트워크가 준비되면(바로 못 하면 나중에 다시) 확인한다.
       medalPendingKey = prevMk;
     }
   }
+  // [안전망] 월 키(monthlyPeriodKey)가 비어 있거나 이미 이번 달로 넘어가 있는 저장본은 위 분기를 통째로 건너뛰어서
+  // 검·검배틀·이름색·저택·재산이 지난 시즌 그대로 남았다. 시즌 초기화가 끝난 시즌 키(seasonResetKey)가 이번 달과
+  // 다르면, 강제 초기화 대상 시즌(SEASON_FORCE_RESET_KEYS)에 한해 한 번 따라잡아 초기화한다.
+  if (seasonResetKey !== mk) {
+    if (SEASON_FORCE_RESET_KEYS.includes(mk)) {
+      try { forceSeasonCatchUp(mk); } catch (e) { console.error('시즌 강제 초기화 중 오류:', e); }
+    }
+    seasonResetKey = mk;
+  }
+}
+
+// 새 시즌에 초기화되는 "이번 시즌 기록" 모음: 보유검/검 강화/보관함 검/검배틀 승점/이름 색상/저택 꾸미기/주간 집계
+// (돈·사업은 settleSeason()의 강제 환생이 담당한다)
+function resetSeasonScopedData() {
+  swordOwned = false;
+  swordLevel = 0;
+  swordStoreOwned = false;
+  swordStoreLevel = 0;
+  swordMonthlyBestLevel = 0;
+  swordBattleWins = 0; // 검배틀 랭킹(승점)도 새 시즌부터 다시 0에서 시작
+  nameColor = null;    // 이름 색상도 새 시즌부터 기본(무색)으로
+  mansionLevel = 0;    // 저택 꾸미기도 새 시즌부터 레벨 0부터 다시
+  // 미니게임 주간 랭킹도 시즌 시작(매달 1일)에 맞춰 강제로 새로 시작한다.
+  // (기존엔 ISO 주간 주기만 따라가서, 시즌이 주 중간에 시작되면 지난주 딴 돈이
+  // 그대로 "이번 주" 랭킹에 섞여 보이는 문제가 있었음)
+  weeklyWinnings = 0;
+  // 화면 갱신에서 오류가 나더라도(불러오기 도중 등) 위에서 바꾼 상태는 이미 확정돼 있어야 한다
+  [renderMansionModal, renderNameColorModal, renderSwordPanel].forEach(fn => {
+    try { fn(); } catch (e) { console.warn('시즌 초기화 후 화면 갱신 실패(무시):', e); }
+  });
+}
+
+// 시즌 초기화가 제대로 안 된 저장본을 한 번에 새 시즌 상태로 맞춘다.
+//  - 지난 시즌 정산을 아직 못 받았으면 정산(돈·사업 초기화 + 시즌 등급 포인트) — 이미 정산했으면 settleSeason()이 알아서 건너뜀
+//  - 검/검배틀/이름색/저택 + 월간 집계 초기화
+function prevMonthKey(mk) {
+  const m = /^(\d{4})-(\d{2})$/.exec(mk);
+  return m ? getMonthKey(new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 2, 1)) : '';
+}
+function forceSeasonCatchUp(mk) {
+  const prevKey = prevMonthKey(mk);
+  const snap = { casino: monthlyWinnings, burned: burnedMonthly, swordBest: Math.max(swordMonthlyBestLevel, swordOwned ? swordLevel : 0, swordStoreOwned ? swordStoreLevel : 0) };
+  if (prevKey) { try { settleSeason(prevKey, snap); } catch (e) { console.error('시즌 정산 중 오류(나머지 초기화는 계속 진행):', e); } }
+  monthlyWinnings = 0;
+  burnedMonthly = 0;
+  resetSeasonScopedData();
+  if (prevKey && !claimedMedalSeasons.includes(prevKey)) medalPendingKey = prevKey;
+  seasonNeedsSave = true; // 초기화된 상태를 클라우드에도 바로 저장
 }
 
 // 검 랭킹(월간, 강화 레벨 기준) 시즌 종료 시 상위 3명에게 보상 지급:
@@ -8912,7 +8960,7 @@ function buildSaveData() {
     swordBattleWins, swordBattleSeasonKey, swordBattleCountToday, swordBattleTickets, swordBattleTicketsAt, lottoAppliedIds,
     swordMonthlyBestLevel, swordReviveCharges, swordColorBoostMonthKey, swordColorBoostMult, claimedSwordSeasonRewards,
     swordStoreOwned, swordStoreLevel,
-    fateCardId, fateOffer, seasonMedals, seasonHistory, claimedMedalSeasons, medalPendingKey, bestSeasonEarned, bestMonthlyCasino, seasonCount,
+    fateCardId, fateOffer, seasonMedals, seasonHistory, claimedMedalSeasons, medalPendingKey, bestSeasonEarned, bestMonthlyCasino, seasonCount, seasonResetKey,
     deviceId: DEVICE_ID,
     lastSaveTime: Date.now()
   };
@@ -9044,6 +9092,7 @@ function applySaveData(data, opts) {
   bestSeasonEarned = Number(data.bestSeasonEarned) || 0;
   bestMonthlyCasino = Number(data.bestMonthlyCasino) || 0;
   seasonCount = Number(data.seasonCount) || 0;
+  seasonResetKey = data.seasonResetKey || '';
   lastSeenPatchVersion = data.lastSeenPatchVersion || '';
   clickUpgradeLevel = data.clickUpgradeLevel || [0,0,0,0];
   jobLevels = data.jobLevels || new Array(allJobs.length).fill(0);
